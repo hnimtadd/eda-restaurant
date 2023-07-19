@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
-	service.InitBackground()
+	go service.InitBackground()
 
 	publisher, err := orderpublisher.NewPublisher(rabbitmqConfig)
 	if err != nil {
@@ -35,5 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
-	transport.Run(":10077")
+	if err := transport.Run(":10077"); err != nil {
+		log.Fatalf("error: %v", err)
+	}
 }

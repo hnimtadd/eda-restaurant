@@ -4,6 +4,7 @@ import (
 	orderservice "edaRestaurant/services/order/orderService"
 	order "edaRestaurant/services/order/type"
 	orderpublisher "edaRestaurant/services/queueAgent"
+	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
 	"log"
 	"time"
@@ -14,10 +15,10 @@ import (
 type FiberTransport struct {
 	app       *fiber.App
 	service   orderservice.OrderService
-	publisher orderpublisher.OrderPublisher
+	publisher queueagent.Publisher
 }
 
-func NewFiberTransport(service orderservice.OrderService, publisher orderpublisher.OrderPublisher) (FiberTransport, error) {
+func NewFiberTransport(service orderservice.OrderService, publisher queueagent.Publisher) (FiberTransport, error) {
 	s := FiberTransport{
 		service:   service,
 		publisher: publisher,

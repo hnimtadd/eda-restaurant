@@ -6,6 +6,7 @@ import (
 	orderrepo "edaRestaurant/services/order/orderRepo"
 	"edaRestaurant/services/order/type"
 	orderpublisher "edaRestaurant/services/queueAgent"
+	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
 	"log"
 	"sync"
@@ -17,10 +18,10 @@ type orderService struct {
 	conn      *amqp.Connection
 	config    config.RabbitmqConfig
 	repo      orderrepo.OrderRepository
-	publisher orderpublisher.OrderPublisher
+	publisher queueagent.Publisher
 }
 
-func NewOrderService(publisher orderpublisher.OrderPublisher, repo orderrepo.OrderRepository, config config.RabbitmqConfig) (OrderService, error) {
+func NewOrderService(publisher queueagent.Publisher, repo orderrepo.OrderRepository, config config.RabbitmqConfig) (OrderService, error) {
 	service := &orderService{
 		repo:      repo,
 		config:    config,
@@ -109,6 +110,7 @@ func (s *orderService) ListenAndServeOrderQueue() {
 		}
 	}()
 	log.Println("[*] Listening to queue")
+	wg.Wait()
 }
 
 func (s *orderService) GetOrderById(id string) (*entities.Order, error) {
@@ -117,11 +119,6 @@ func (s *orderService) GetOrderById(id string) (*entities.Order, error) {
 		return nil, err
 	}
 	return rorder, nil
-	// sOrder := order.Order{
-	// 	OrderId:  rorder.OrderId,
-	// 	DishesId: rorder.DishesId,
-	// }
-	// return &sOrder, nil
 }
 
 func (s *orderService) GetOrders() ([]entities.Order, error) {
