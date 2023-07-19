@@ -56,6 +56,8 @@ func (s *FiberTransport) initRoute() error {
 	s.app.Get("/api/v1/event/get-order/:id", s.GetOrderById())
 	s.app.Get("/api/v1/event/get-orders", s.GetOrders())
 	s.app.Post("/api/v1/event/create-order", s.CreateOrder())
+	s.app.Get("/api/v1/event/get-dishes", s.GetDishes())
+	s.app.Post("/api/v1/event/create-dish", s.CreateDish())
 	return nil
 }
 
@@ -98,7 +100,7 @@ func (s *FiberTransport) CreateOrder() fiber.Handler {
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
 			return ctx.SendStatus(fiber.StatusInternalServerError)
 		}
-		request := orderpublisher.PublishRequest{
+		request := &orderpublisher.PublishRequest{
 			QueueName: "order",
 			Body:      body,
 		}
@@ -127,6 +129,41 @@ func (s *FiberTransport) GetOrders() fiber.Handler {
 
 		ctx.Response().Header.Set("Content-Type", "application/json")
 		json.NewEncoder(ctx.Response().BodyWriter()).Encode(orders)
+		return ctx.SendStatus(fiber.StatusOK)
+
+	}
+}
+
+func (s *FiberTransport) GetDishes() fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		dishes, err := s.service.GetDishes()
+		if err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusInternalServerError)
+		}
+		ctx.Response().Header.Set("Content-Type", "application/json")
+		json.NewEncoder(ctx.Response().BodyWriter()).Encode(&dishes)
+		return ctx.SendStatus(fiber.StatusOK)
+	}
+}
+
+func (s *FiberTransport) CreateDish() fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		var dish order.Dish
+		if err := json.Unmarshal(ctx.Body(), &dish); err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+		if err := s.service.CreateDish(dish); err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+
+		ctx.Response().Header.Set("Content-Type", "application/json")
+		json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": "success"})
 		return ctx.SendStatus(fiber.StatusOK)
 
 	}

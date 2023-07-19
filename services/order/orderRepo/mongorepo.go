@@ -135,6 +135,7 @@ func (repo *orderRepository) CreateDish(dish order.Dish) error {
 		DishId:      uuid.New().String(),
 		Description: dish.Description,
 		Name:        dish.Name,
+		Ingredients: dish.IngredientsId,
 	}
 	_, err := repo.db.Collection("dishes").InsertOne(ctx, entityDish)
 	if err != nil {

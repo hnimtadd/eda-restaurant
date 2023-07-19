@@ -8,9 +8,12 @@ import (
 	orderpublisher "edaRestaurant/services/queueAgent"
 	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -99,7 +102,8 @@ func (s *orderService) ListenAndServeOrderQueue() {
 				continue
 			}
 
-			req := orderpublisher.PublishRequest{
+			req := &orderpublisher.PublishRequest{
+				Type:      "create",
 				QueueName: "cook",
 				Body:      d.Body,
 			}
@@ -127,4 +131,55 @@ func (s *orderService) GetOrders() ([]entities.Order, error) {
 		return nil, err
 	}
 	return orders, nil
+}
+
+type checkIngredient struct {
+	Id      string `json:"ingredient_id,omiempty"`
+	Quality int    `json:"quality,omiempty"`
+}
+
+func (s *orderService) CreateDish(dish order.Dish) error {
+	for _, ing := range dish.IngredientsId {
+		agent := fiber.AcquireAgent()
+		req := agent.Request()
+		req.Header.SetMethod(fiber.MethodGet)
+		log.Println("check ingredient: ", ing)
+		bodycheck := checkIngredient{
+			Id:      ing,
+			Quality: 0,
+		}
+		byts, err := json.Marshal(&bodycheck)
+		if err != nil {
+
+		}
+		req.SetBody(byts)
+		req.SetRequestURI("http://localhost:9999/api/v1/event/check-ingredients")
+		err = agent.Parse()
+		if err != nil {
+			return err
+		}
+		code, body, errs := agent.Bytes()
+		if len(errs) > 0 {
+			return errs[0]
+		}
+		log.Println(code, body)
+		if code == fiber.StatusOK {
+			time.Sleep(time.Second)
+		} else if code == fiber.StatusNotFound {
+			return errors.New("ingredient not found")
+		}
+
+	}
+	if err := s.repo.CreateDish(dish); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *orderService) GetDishes() ([]entities.Dish, error) {
+	dishes, err := s.repo.GetDishes()
+	if err != nil {
+		return nil, err
+	}
+	return dishes, nil
 }
