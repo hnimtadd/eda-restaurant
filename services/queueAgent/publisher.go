@@ -13,11 +13,12 @@ import (
 )
 
 type PublishRequest struct {
+	Type      string
 	QueueName string
 	Body      []byte
 }
 type Publisher interface {
-	Publish(PublishRequest) error
+	Publish(req *PublishRequest) error
 }
 
 type orderPublisher struct {
@@ -45,7 +46,7 @@ func (s *orderPublisher) initConnection() error {
 	return nil
 }
 
-func (s *orderPublisher) Publish(req PublishRequest) error {
+func (s *orderPublisher) Publish(req *PublishRequest) error {
 	ch, err := s.conn.Channel()
 
 	if err != nil {
@@ -82,6 +83,7 @@ func (s *orderPublisher) Publish(req PublishRequest) error {
 		amqp.Publishing{
 			ContentType:   "plain/text",
 			CorrelationId: corrId,
+			Type:          req.Type,
 			// ReplyTo:       q.Name,
 			Body: req.Body,
 		})
