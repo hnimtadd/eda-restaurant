@@ -75,10 +75,13 @@ func (s *paymentService) MakePaymentHandler(msg any) error {
 		}
 	}
 	if err != nil {
-		log.Printf("[ERROR]: %v", err)
 		return err
 	}
-	if err := s.publisher.ReplyWithValue(d, "", rsp); err != nil {
+	replyMsg, err := s.publisher.MakeMessageWithValue("payment", d.ReplyTo, "reply", d.CorrelationId, rsp)
+	if err != nil {
+		return err
+	}
+	if err := s.publisher.PublishWithMessage(&replyMsg); err != nil {
 		return err
 	}
 	log.Println("[makepayment] REPLIED")
@@ -90,26 +93,30 @@ func (s *paymentService) GetDishMoney(dishid ...string) (float64, error) {
 }
 func (s *paymentService) CheckPaymentHandler(msg any) error {
 	d := msg.(amqp.Delivery)
-	log.Println("Received from: ", d.ReplyTo)
 	var req payment.CheckPaymentRequest
 	if err := json.Unmarshal(d.Body, &req); err != nil {
 		log.Printf("[ERROR]: %v", err)
-		d.Nack(false, false)
+		return err
 	}
 
 	money, err := s.GetDishMoney(req.DishId...)
 	if err != nil {
 		log.Printf("[ERROR]: %v", err)
-		d.Nack(false, false)
+		return err
 	}
 	rsp := payment.CheckPaymentResponse{
 		TableId:      req.TableId,
 		OrderId:      req.OrderId,
 		CurrentMoney: money,
 	}
-	if err := s.publisher.ReplyWithValue(d, "", rsp); err != nil {
+	// Reply to askqueue
+	replyMsg, err := s.publisher.MakeMessageWithValue("payment", d.ReplyTo, "reply", d.CorrelationId, rsp)
+	if err != nil {
+		return err
+	}
+	if err := s.publisher.PublishWithMessage(&replyMsg); err != nil {
 		log.Printf("[ERROR]: %v", err)
-		d.Nack(false, false)
+		return err
 	}
 	return nil
 }
@@ -141,6 +148,7 @@ func (s *paymentService) ListenAndServePaymentOrder() {
 		false,
 		nil,
 	)
+
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
@@ -162,25 +170,28 @@ func (s *paymentService) ListenAndServePaymentOrder() {
 	go func() {
 		defer wg.Done()
 		for d := range ds {
-			log.Println("[Payment] Received message on queue")
+			log.Println("[Payment] Received message on queue: ", d.Type)
 			var err error
 			if d.Type == "check" {
 				err = s.CheckPaymentHandler(d)
-				if err != nil {
-					log.Printf("[ERROR] %v", err)
-				}
+				// if err != nil {
+				// 	log.Printf("[ERROR] %v", err)
+				// }
 			} else if d.Type == "make" {
 				err = s.MakePaymentHandler(d)
-				if err != nil {
-					log.Printf("[ERROR] %v", err)
-				}
+				// if err != nil {
+				// 	log.Printf("[ERROR] %v", err)
+				// }
 			} else {
-				log.Printf("[ERROR] no handler available")
+				err = errors.New("[ERROR] no handler available")
 			}
 			if err != nil {
+				log.Printf("[ERROR]: %v", err)
 				if d.Redelivered {
+					log.Println("reject")
 					d.Nack(false, false)
 				} else {
+					log.Println("redelivery")
 					d.Nack(false, true)
 				}
 			} else {

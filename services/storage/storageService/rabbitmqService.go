@@ -95,7 +95,7 @@ func (s *storageService) ListenAndServeQueue() {
 				}
 			}
 			if msg != nil {
-				s.publisher.Publish(msg)
+				s.publisher.PublishWithMessage(msg)
 			}
 			if ok {
 				d.Ack(false)

@@ -57,17 +57,40 @@ func (s *errorService) ListenAndServeCookQueue() {
 		},
 	)
 
+	// err = ch.ExchangeDelete("errorEx", false, false)
+	// if err != nil {
+	// 	log.Fatalf("error: %v", err)
+	// }
+	err = ch.ExchangeDeclare(
+		"errorEx",
+		"fanout",
+		true,
+		false,
+		true,
+		false,
+		amqp.Table{},
+	)
+
 	if err != nil {
+		log.Println("Exchange config fail")
+		log.Println("trying to redeclare exchange, unbind all other queue")
 		log.Fatalf("error: %v", err)
 	}
+
 	queue, err := ch.QueueDeclare(
-		"cook",
+		"error",
 		true,
 		false,
 		false,
 		false,
 		nil,
 	)
+
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+
+	err = ch.QueueBind(queue.Name, "", "errorEx", false, nil)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
@@ -87,13 +110,38 @@ func (s *errorService) ListenAndServeCookQueue() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for d := range ds {
-			defer wg.Done()
+			log.Printf("[ERROR]: received message on dead letter queue, from: %s, to: %s, corrId: %s, type:%s", d.ReplyTo, d.RoutingKey, d.CorrelationId, d.Type)
+			err := s.HandlerErrorMessage(d)
+			if err != nil {
+				log.Printf("[ERROR]: %v", err)
+				if d.Redelivered {
+					d.Nack(false, false)
+				} else {
+					d.Nack(false, true)
+				}
+				continue
+			}
 			d.Ack(false)
 		}
 	}()
 
 	log.Printf("[*] Listening to queue: %s\n", queue.Name)
 	wg.Wait()
+}
 
+func (s *errorService) HandlerErrorMessage(d amqp.Delivery) error {
+	msg := queueagent.PublishMessage{
+		FromName: d.RoutingKey,
+		ToName:   d.ReplyTo,
+		CorrId:   d.CorrelationId,
+		Type:     "reject",
+		Body:     []byte("Message can't handler right now"),
+	}
+	err := s.publisher.PublishWithMessage(&msg)
+	if err != nil {
+		return err
+	}
+	return nil
 }

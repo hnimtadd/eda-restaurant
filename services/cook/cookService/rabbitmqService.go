@@ -91,29 +91,33 @@ func (s *cookService) ListenAndServeCookQueue() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for d := range ds {
-			defer wg.Done()
-			var order order.Order
-			if err := json.Unmarshal(d.Body, &order); err != nil {
-				log.Printf("error: %v", err)
-				if d.Redelivered {
-					d.Nack(false, false)
+			if d.Type == "create" {
+				var order order.Order
+				if err := json.Unmarshal(d.Body, &order); err != nil {
+					log.Printf("error: %v", err)
+					d.Nack(true, false)
 					continue
 				}
-				d.Nack(false, true)
-				continue
-			}
-
-			log.Printf("[x] Received cook order: %v", order)
-			if ok, msg, err := s.ServeOrder(order); !ok && err != nil {
-				if msg != nil && !d.Redelivered {
-					s.publisher.Publish(msg)
-				} else {
-					d.Nack(false, false)
+				log.Printf("[x] Received cook order: tableId:  %v, dishId: [%v]", order.TableId, order.DishesId)
+				if ok, msg, err := s.ServeOrder(order); !ok || err != nil {
+					log.Printf("error: %v", err)
+					if msg != nil {
+						s.publisher.PublishWithMessage(msg)
+						d.Ack(false)
+					} else if !d.Redelivered {
+						d.Nack(false, false)
+					} else {
+						d.Nack(false, true)
+					}
+					continue
 				}
-				log.Printf("error: %v", err)
+				d.Ack(false)
+			} else {
+				log.Printf("[cook] type not valid %s", d.Type)
+				d.Nack(false, false)
 			}
-			d.Ack(false)
 		}
 	}()
 
@@ -136,18 +140,20 @@ func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishMe
 		serveDish = append(serveDish, dishid)
 	}
 
-	tableReq := cook.TableServeRequest{
-		OrderId: order.OrderId,
-		TableId: order.TableId,
-		DishId:  serveDish,
-	}
-	// dish cooked, publish to tableRunner
-	if err := s.publisher.PublishWithValue("tableRunner", "serve", &tableReq); err != nil {
-		log.Printf("error: %v", err)
-		return false, nil, err
+	if len(serveDish) > 0 {
+		tableReq := cook.TableServeRequest{
+			OrderId: order.OrderId,
+			TableId: order.TableId,
+			DishId:  serveDish,
+		}
+		// dish cooked, publish to tableRunner
+		if err := s.publisher.PublishWithValue("order", "tableRunner", "serve", &tableReq); err != nil {
+			log.Printf("error: %v", err)
+			return false, nil, err
+		}
+		log.Printf("Served %d dish: [%v]", len(serveDish), serveDish)
 	}
 
-	log.Printf("Served %d dish: [%v]", len(serveDish), serveDish)
 	if len(unservedDish) != 0 {
 		order.DishesId = unservedDish
 		body, err := json.Marshal(order)
@@ -156,8 +162,10 @@ func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishMe
 			return false, nil, err
 		}
 		req := queueagent.PublishMessage{
-			ToName: "cook",
-			Body:   body,
+			Type:     "create",
+			FromName: "cook",
+			ToName:   "cook",
+			Body:     body,
 		}
 		log.Printf("Republish unserved dish: %v", unservedDish)
 		return false, &req, err

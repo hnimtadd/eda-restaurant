@@ -5,10 +5,10 @@ import (
 	"edaRestaurant/services/entities"
 	orderrepo "edaRestaurant/services/order/orderRepo"
 	"edaRestaurant/services/order/type"
-	orderpublisher "edaRestaurant/services/queueAgent"
 	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -95,15 +95,16 @@ func (s *orderService) ListenAndServeOrderQueue() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for d := range ds {
-			defer wg.Done()
 			var order order.Order
 			if err := json.Unmarshal(d.Body, &order); err != nil {
+				log.Println(d.Redelivered)
 				if d.Redelivered {
 					d.Nack(false, false)
 					continue
 				}
-				d.Nack(false, true)
+				d.Nack(false, false)
 				continue
 			}
 			log.Printf("[x] create Order")
@@ -112,13 +113,7 @@ func (s *orderService) ListenAndServeOrderQueue() {
 				continue
 			}
 
-			req := &orderpublisher.PublishMessage{
-				Type:     "create",
-				ToName:   "cook",
-				FromName: "order",
-				Body:     d.Body,
-			}
-			if err := s.publisher.Publish(req); err != nil {
+			if err := s.publisher.PublishWithValue("order", "cook", "create", order); err != nil {
 				log.Printf("error: %v", err)
 			}
 			d.Ack(false)
@@ -154,7 +149,6 @@ func (s *orderService) CreateDish(dish order.Dish) error {
 		agent := fiber.AcquireAgent()
 		req := agent.Request()
 		req.Header.SetMethod(fiber.MethodGet)
-		log.Println("check ingredient: ", ing)
 		bodycheck := checkIngredient{
 			Id:      ing,
 			Quality: 0,
@@ -169,11 +163,10 @@ func (s *orderService) CreateDish(dish order.Dish) error {
 		if err != nil {
 			return err
 		}
-		code, body, errs := agent.Bytes()
+		code, _, errs := agent.Bytes()
 		if len(errs) > 0 {
 			return errs[0]
 		}
-		log.Println(code, body)
 		if code == fiber.StatusOK {
 			time.Sleep(time.Second)
 		} else if code == fiber.StatusNotFound {
@@ -203,13 +196,7 @@ func (s *orderService) CleanTable(tableId string) error {
 	if err != nil {
 		return err
 	}
-	req := queueagent.PublishMessage{
-		Type:     "clean",
-		FromName: "order",
-		ToName:   "tableRunner",
-		Body:     body,
-	}
-	if err := s.publisher.Publish(&req); err != nil {
+	if err := s.publisher.PublishWithValue("order", "tableRunner", "clean", body); err != nil {
 		return err
 	}
 	return nil
@@ -220,8 +207,7 @@ func (s *orderService) CheckPayment(cPaymentReq order.CheckPaymentRequest) (*ord
 		return nil, err
 	}
 	cPaymentReq.DishId = ord.DishesId
-	log.Println("checkpoint")
-	rspMsg, err := s.publisher.PublishAndWaitForResponse("payment", "check", cPaymentReq)
+	rspMsg, err := s.publisher.PublishAndWaitForResponse("order", "payment", "check", cPaymentReq)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +215,6 @@ func (s *orderService) CheckPayment(cPaymentReq order.CheckPaymentRequest) (*ord
 	if err := json.Unmarshal(rspMsg.Body, &paymentRsp); err != nil {
 		return nil, err
 	}
-	log.Print(paymentRsp)
 	return &paymentRsp, nil
 }
 
@@ -239,7 +224,7 @@ func (s *orderService) MakePayment(req order.PaymentRequest) (any, error) {
 		return nil, err
 	}
 	req.DishId = ord.DishesId
-	rsp, err := s.publisher.PublishAndWaitForResponse("payment", "make", req)
+	rsp, err := s.publisher.PublishAndWaitForResponse("order", "payment", "make", req)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +255,9 @@ func (s *orderService) MakePayment(req order.PaymentRequest) (any, error) {
 		}
 	default:
 		{
+			if rsp.Type == "reject" {
+				return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handler at server right now", string(rsp.Body)))
+			}
 			return nil, errors.New("payment method not accept")
 		}
 	}

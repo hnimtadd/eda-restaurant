@@ -18,6 +18,7 @@ type PublishMessage struct {
 	FromName string
 	ToName   string
 	Body     []byte
+	CorrId   string
 }
 
 //	type PublishResponse struct {
@@ -27,10 +28,12 @@ type PublishMessage struct {
 //		Body          string
 //	}
 type Publisher interface {
-	Publish(req *PublishMessage) error
-	PublishWithValue(queueName string, reqType string, body interface{}) error
-	PublishAndWaitForResponse(queueName string, reqType string, body interface{}) (PublishMessage, error)
-	ReplyWithValue(d amqp.Delivery, reqType string, body interface{}) error
+	publish(req *PublishMessage) error
+	PublishWithMessage(msg *PublishMessage) error
+	PublishWithValue(fromName, toName, reqType string, body interface{}) error
+	PublishAndWaitForResponse(fromName, toName, reqType string, body interface{}) (PublishMessage, error)
+	MakeMessageWithValue(fromName, toName, reqType, corrId string, body interface{}) (PublishMessage, error)
+	// ReplyWithValue(d amqp.Delivery, reqType string, body interface{}) error
 }
 
 type publisher struct {
@@ -58,7 +61,7 @@ func (s *publisher) initConnection() error {
 	return nil
 }
 
-func (s *publisher) Publish(req *PublishMessage) error {
+func (s *publisher) publish(req *PublishMessage) error {
 	ch, err := s.conn.Channel()
 
 	if err != nil {
@@ -71,13 +74,15 @@ func (s *publisher) Publish(req *PublishMessage) error {
 	if err != nil {
 		return err
 	}
+	corrId := req.CorrId
 
-	corrId := utils.RandomString(32)
+	if corrId == "" {
+		corrId = utils.RandomString(32)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// TODO: continue implement publish method
-	log.Println(req)
 	err = ch.PublishWithContext(
 		ctx,
 		"restaurant",
@@ -122,12 +127,11 @@ func (s *publisher) Publish(req *PublishMessage) error {
 	}()
 	for {
 		res, ok := <-result
-		log.Println("[RES]: ", res)
 		if !ok {
 			break
 		}
 		if res == nil {
-			log.Printf("Published to queue: %s", req.ToName)
+			log.Printf("[Publisher] Published from %s, to %s, msg type: %s, corrId: %s\n", req.FromName, req.ToName, req.Type, req.CorrId)
 		}
 		return res
 	}
@@ -135,15 +139,10 @@ func (s *publisher) Publish(req *PublishMessage) error {
 	return errors.New("Unreaced Code")
 }
 
-func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, value interface{}) (PublishMessage, error) {
+func (s *publisher) PublishAndWaitForResponse(fromName, toName string, reqType string, value interface{}) (PublishMessage, error) {
 	body, err := json.Marshal(&value)
 	if err != nil {
 		return PublishMessage{}, err
-	}
-	req := &PublishMessage{
-		Type:   reqType,
-		ToName: QueueName,
-		Body:   body,
 	}
 	ch, err := s.conn.Channel()
 
@@ -155,13 +154,17 @@ func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, 
 		return PublishMessage{}, err
 	}
 	q, err := ch.QueueDeclare( // reply queue
-		"",
+		"reply",
 		false,
 		true,
 		true,
 		false,
 		nil,
 	)
+	err = ch.QueueBind(q.Name, q.Name, "restaurant", false, nil)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
 
 	if err != nil {
 		return PublishMessage{}, err
@@ -175,17 +178,21 @@ func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, 
 	err = ch.PublishWithContext(
 		ctx,
 		"restaurant",
-		req.ToName,
+		toName,
 		false,
 		false,
 		amqp.Publishing{
 			ContentType:   "plain/text",
 			CorrelationId: corrId,
-			Type:          req.Type,
-			Body:          req.Body,
+			Type:          reqType,
+			Body:          body,
 			ReplyTo:       q.Name,
 		})
 
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	log.Printf("[Publisher] Published from %s, to %s, msg type: %s, corrId: %s\n", fromName, toName, reqType, corrId)
 	var wg sync.WaitGroup
 
 	result := make(chan amqp.Delivery, 1)
@@ -196,7 +203,7 @@ func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, 
 		q.Name, //queuename
 		"",     //consumer
 		true,   //auto-ack
-		true,   //exclusive
+		false,  //exclusive
 		false,  //no-local
 		false,  //no-wait
 		nil,    //args
@@ -207,19 +214,20 @@ func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, 
 	go func() {
 		defer wg.Done()
 		for msg := range chann {
-			log.Println("hello")
 			if msg.CorrelationId == corrId {
-				log.Println("Received reply message", msg)
 				result <- msg
 			}
 		}
 	}()
 	for res := range result {
-		log.Println("[RES]: ", res)
 		rsp := PublishMessage{
-			Type: res.Type,
-			Body: res.Body,
+			FromName: res.ReplyTo,
+			ToName:   res.RoutingKey,
+			Type:     res.Type,
+			CorrId:   res.CorrelationId,
+			Body:     res.Body,
 		}
+		log.Printf("[Publisher] Received reponse from: %s, to: %s, type: %s, corrrId: %s ", rsp.FromName, rsp.ToName, rsp.Type, rsp.CorrId)
 		return rsp, err
 	}
 	log.Println("Listening to response on: ", q.Name)
@@ -227,98 +235,121 @@ func (s *publisher) PublishAndWaitForResponse(QueueName string, reqType string, 
 	return PublishMessage{}, errors.New("Unreaced Code")
 }
 
-func (s *publisher) PublishWithValue(QueueName string, reqType string, value interface{}) error {
+func (s *publisher) PublishWithValue(fromName, toName, reqType string, value interface{}) error {
 	body, err := json.Marshal(&value)
 	if err != nil {
 		return err
 	}
 	req := &PublishMessage{
-		Type:   reqType,
-		ToName: QueueName,
-		Body:   body,
+		FromName: fromName,
+		Type:     reqType,
+		ToName:   toName,
+		Body:     body,
 	}
-	if err := s.Publish(req); err != nil {
+	if err := s.publish(req); err != nil {
 		return err
 	}
 	return nil
 }
-func (s *publisher) ReplyWithValue(d amqp.Delivery, reqType string, body interface{}) error {
-	ch, err := s.conn.Channel()
-
-	if err != nil {
+func (s *publisher) PublishWithMessage(msg *PublishMessage) error {
+	if err := s.publish(msg); err != nil {
 		return err
 	}
-	defer ch.Close()
-	if err := ch.Confirm(false); err != nil {
-		return err
-	}
+	return nil
+}
 
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (s *publisher) MakeMessageWithValue(fromName, toName, reqType, corrId string, body interface{}) (PublishMessage, error) {
 	bbody, err := json.Marshal(&body)
 	if err != nil {
-		return err
+		return PublishMessage{}, err
 	}
-
-	// TODO: continue implement publish method
-	err = ch.PublishWithContext(
-		ctx,
-		"restaurant",
-		d.RoutingKey,
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:   "plain/text",
-			CorrelationId: d.CorrelationId,
-			Type:          reqType,
-			Body:          bbody,
-			// ReplyTo:       q.Name,
-		})
-
-	var wg sync.WaitGroup
-
-	result := make(chan error, 1)
-
-	// listen to response
-
-	chann := make(chan amqp.Confirmation, 1)
-	chann = ch.NotifyPublish(chann)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			noti, ok := <-chann
-			if !ok {
-				log.Println("Debug point")
-				continue
-			}
-			if noti.Ack {
-				log.Println("ack")
-				result <- nil
-				return
-			} else {
-				log.Println("nack")
-				result <- errors.New("Message can't publish right now")
-				return
-			}
-		}
-	}()
-	for {
-		res, ok := <-result
-		log.Println("[RES]: ", res)
-		if !ok {
-			break
-		}
-		if res == nil {
-			log.Printf("Published to queue: %s", d.ReplyTo)
-		}
-		return res
+	msg := PublishMessage{
+		FromName: fromName,
+		ToName:   toName,
+		Type:     reqType,
+		CorrId:   corrId,
+		Body:     bbody,
 	}
-	wg.Wait()
-	return errors.New("Unreaced Code")
-
+	return msg, nil
 }
+
+// func (s *publisher) ReplyWithValue(d amqp.Delivery, reqType string, body interface{}) error {
+// 	ch, err := s.conn.Channel()
+//
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer ch.Close()
+// 	if err := ch.Confirm(false); err != nil {
+// 		return err
+// 	}
+//
+// 	if err != nil {
+// 		return err
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// 	defer cancel()
+// 	bbody, err := json.Marshal(&body)
+// 	if err != nil {
+// 		return err
+// 	}
+//
+// 	// TODO: continue implement publish method
+// 	err = ch.PublishWithContext(
+// 		ctx,
+// 		"restaurant",
+// 		d.ReplyTo,
+// 		false,
+// 		false,
+// 		amqp.Publishing{
+// 			ContentType:   "plain/text",
+// 			CorrelationId: d.CorrelationId,
+// 			Type:          reqType,
+// 			Body:          bbody,
+// 			ReplyTo:       d.RoutingKey,
+// 		})
+//
+// 	var wg sync.WaitGroup
+//
+// 	result := make(chan error, 1)
+//
+// 	// listen to response
+//
+// 	chann := make(chan amqp.Confirmation, 1)
+// 	chann = ch.NotifyPublish(chann)
+// 	wg.Add(1)
+// 	go func() {
+// 		defer wg.Done()
+// 		for {
+// 			noti, ok := <-chann
+// 			if !ok {
+// 				log.Println("Debug point")
+// 				continue
+// 			}
+// 			if noti.Ack {
+// 				log.Println("ack")
+// 				result <- nil
+// 				return
+// 			} else {
+// 				log.Println("nack")
+// 				result <- errors.New("Message can't publish right now")
+// 				return
+// 			}
+// 		}
+// 	}()
+// 	for {
+// 		res, ok := <-result
+// 		log.Println("[RES]: ", res)
+// 		if !ok {
+// 			break
+// 		}
+// 		if res == nil {
+// 			log.Printf("Published to queue: %s", d.RoutingKey)
+// 		}
+// 		return res
+// 	}
+// 	wg.Wait()
+// 	return errors.New("Unreaced Code")
+//
+// }

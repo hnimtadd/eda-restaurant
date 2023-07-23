@@ -113,7 +113,7 @@ func (s *FiberTransport) CreateOrder() fiber.Handler {
 			FromName: "order",
 			Body:     body,
 		}
-		if err := s.publisher.Publish(request); err != nil {
+		if err := s.publisher.PublishWithMessage(request); err != nil {
 			rsp.Msg = err.Error()
 			ctx.Response().Header.Set("Content-Type", "application/json")
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
