@@ -60,6 +60,16 @@ func (s *storageService) ListenAndServeQueue() {
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
+	err = ch.QueueBind(
+		queue.Name,
+		queue.Name,
+		"restaurant",
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
 	ds, err := ch.Consume(
 		queue.Name,
 		"",
@@ -96,7 +106,7 @@ func (s *storageService) ListenAndServeQueue() {
 	wg.Wait()
 }
 
-func (s *storageService) Handler(msg amqp.Delivery) (bool, *queueagent.PublishRequest, error) {
+func (s *storageService) Handler(msg amqp.Delivery) (bool, *queueagent.PublishMessage, error) {
 	return true, nil, nil
 }
 
