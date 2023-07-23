@@ -56,9 +56,11 @@ func (repo *orderRepository) initDB() error {
 
 func (repo *orderRepository) CreateOrder(order order.Order) error {
 	// TODO: add order to repository
-	var orderEntity entities.Order
-	orderEntity.OrderId = uuid.New().String()
-	orderEntity.DishesId = order.DishesId
+	orderEntity := entities.Order{
+		OrderId:  uuid.New().String(),
+		DishesId: order.DishesId,
+		TableId:  order.TableId,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()

@@ -58,6 +58,8 @@ func (s *FiberTransport) initRoute() error {
 	s.app.Post("/api/v1/event/create-order", s.CreateOrder())
 	s.app.Get("/api/v1/event/get-dishes", s.GetDishes())
 	s.app.Post("/api/v1/event/create-dish", s.CreateDish())
+	s.app.Put("/api/v1/event/check-payment", s.CheckPayment())
+	s.app.Put("/api/v1/event/make-payment", s.MakePayment())
 	return nil
 }
 
@@ -92,6 +94,12 @@ func (s *FiberTransport) CreateOrder() fiber.Handler {
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
 			return ctx.SendStatus(fiber.StatusBadRequest)
 		}
+		if order.TableId == "" {
+			rsp.Msg = "tableId must not null"
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
 
 		body, err := json.Marshal(order)
 		if err != nil {
@@ -100,9 +108,10 @@ func (s *FiberTransport) CreateOrder() fiber.Handler {
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
 			return ctx.SendStatus(fiber.StatusInternalServerError)
 		}
-		request := &orderpublisher.PublishRequest{
-			QueueName: "order",
-			Body:      body,
+		request := &orderpublisher.PublishMessage{
+			ToName:   "order",
+			FromName: "order",
+			Body:     body,
 		}
 		if err := s.publisher.Publish(request); err != nil {
 			rsp.Msg = err.Error()
@@ -110,7 +119,6 @@ func (s *FiberTransport) CreateOrder() fiber.Handler {
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
 			return ctx.SendStatus(fiber.StatusInternalServerError)
 		}
-
 		rsp.Msg = "Create Order success"
 		ctx.Response().Header.Set("Content-Type", "application/json")
 		json.NewEncoder(ctx.Response().BodyWriter()).Encode(&rsp)
@@ -166,5 +174,60 @@ func (s *FiberTransport) CreateDish() fiber.Handler {
 		json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": "success"})
 		return ctx.SendStatus(fiber.StatusOK)
 
+	}
+}
+
+func (s *FiberTransport) CleanTable() fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		id := ctx.Params("id")
+		if err := s.service.CleanTable(id); err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+
+		ctx.Response().Header.Set("Content-Type", "application/json")
+		json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": "success"})
+		return ctx.SendStatus(fiber.StatusOK)
+	}
+}
+
+func (s *FiberTransport) CheckPayment() fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		var req order.CheckPaymentRequest
+		if err := json.Unmarshal(ctx.Body(), &req); err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+		rsp, err := s.service.CheckPayment(req)
+		if err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+		ctx.Response().Header.Set("Content-Type", "application/json")
+		json.NewEncoder(ctx.Response().BodyWriter()).Encode(rsp)
+		return ctx.SendStatus(fiber.StatusOK)
+	}
+}
+
+func (s *FiberTransport) MakePayment() fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		var req order.PaymentRequest
+		if err := json.Unmarshal(ctx.Body(), &req); err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusBadRequest)
+		}
+		rsp, err := s.service.MakePayment(req)
+		if err != nil {
+			ctx.Response().Header.Set("Content-Type", "application/json")
+			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
+			return ctx.SendStatus(fiber.StatusInternalServerError)
+		}
+		ctx.Response().Header.Set("Content-Type", "application/json")
+		json.NewEncoder(ctx.Response().BodyWriter()).Encode(rsp)
+		return ctx.SendStatus(fiber.StatusOK)
 	}
 }

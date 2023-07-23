@@ -69,6 +69,16 @@ func (s *orderService) ListenAndServeOrderQueue() {
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
+	err = ch.QueueBind(
+		queue.Name,
+		queue.Name,
+		"restaurant",
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
 
 	ds, err := ch.Consume(
 		queue.Name,
@@ -102,10 +112,11 @@ func (s *orderService) ListenAndServeOrderQueue() {
 				continue
 			}
 
-			req := &orderpublisher.PublishRequest{
-				Type:      "create",
-				QueueName: "cook",
-				Body:      d.Body,
+			req := &orderpublisher.PublishMessage{
+				Type:     "create",
+				ToName:   "cook",
+				FromName: "order",
+				Body:     d.Body,
 			}
 			if err := s.publisher.Publish(req); err != nil {
 				log.Printf("error: %v", err)
@@ -182,4 +193,84 @@ func (s *orderService) GetDishes() ([]entities.Dish, error) {
 		return nil, err
 	}
 	return dishes, nil
+}
+
+func (s *orderService) CleanTable(tableId string) error {
+	treq := order.TableCleanRequest{
+		TableId: tableId,
+	}
+	body, err := json.Marshal(&treq)
+	if err != nil {
+		return err
+	}
+	req := queueagent.PublishMessage{
+		Type:     "clean",
+		FromName: "order",
+		ToName:   "tableRunner",
+		Body:     body,
+	}
+	if err := s.publisher.Publish(&req); err != nil {
+		return err
+	}
+	return nil
+}
+func (s *orderService) CheckPayment(cPaymentReq order.CheckPaymentRequest) (*order.CheckPaymentResponse, error) {
+	ord, err := s.repo.GetOrderById(cPaymentReq.OrderId)
+	if err != nil {
+		return nil, err
+	}
+	cPaymentReq.DishId = ord.DishesId
+	log.Println("checkpoint")
+	rspMsg, err := s.publisher.PublishAndWaitForResponse("payment", "check", cPaymentReq)
+	if err != nil {
+		return nil, err
+	}
+	var paymentRsp order.CheckPaymentResponse
+	if err := json.Unmarshal(rspMsg.Body, &paymentRsp); err != nil {
+		return nil, err
+	}
+	log.Print(paymentRsp)
+	return &paymentRsp, nil
+}
+
+func (s *orderService) MakePayment(req order.PaymentRequest) (any, error) {
+	ord, err := s.repo.GetOrderById(req.OrderId)
+	if err != nil {
+		return nil, err
+	}
+	req.DishId = ord.DishesId
+	rsp, err := s.publisher.PublishAndWaitForResponse("payment", "make", req)
+	if err != nil {
+		return nil, err
+	}
+	switch paymentType := req.PaymentType; paymentType {
+	case "cash":
+		{
+			var cashRsp order.PaymentWithCashRsp
+			if err := json.Unmarshal(rsp.Body, &cashRsp); err != nil {
+				return nil, err
+			}
+			return cashRsp, nil
+		}
+	case "bank":
+		{
+			var bankRsp order.PaymentWithBankRsp
+			if err := json.Unmarshal(rsp.Body, &bankRsp); err != nil {
+				return nil, err
+			}
+			return bankRsp, nil
+		}
+	case "wallet":
+		{
+			var walletRsp order.PaymentWithWalletRsp
+			if err := json.Unmarshal(rsp.Body, &walletRsp); err != nil {
+				return nil, err
+			}
+			return walletRsp, nil
+		}
+	default:
+		{
+			return nil, errors.New("payment method not accept")
+		}
+	}
 }
