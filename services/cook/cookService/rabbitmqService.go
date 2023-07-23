@@ -65,6 +65,17 @@ func (s *cookService) ListenAndServeCookQueue() {
 		log.Fatalf("error: %v", err)
 	}
 
+	err = ch.QueueBind(
+		queue.Name,
+		queue.Name,
+		"restaurant",
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+
 	ds, err := ch.Consume(
 		queue.Name,
 		"",
@@ -110,32 +121,33 @@ func (s *cookService) ListenAndServeCookQueue() {
 	wg.Wait()
 }
 
-func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishRequest, error) {
-	cook := cook.Cook{}
-	cook.OrderId = order.OrderId
-	cook.Timestamp = time.Now()
-	unservedDish := []string{}
+func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishMessage, error) {
+	var (
+		unservedDish = []string{}
+		serveDish    = []string{}
+	)
 	for _, dishid := range order.DishesId {
-		dish, err := s.ServeDish(dishid)
+		_, err := s.ServeDish(dishid)
 		if err != nil {
 			log.Printf("error: %v", err)
 			unservedDish = append(unservedDish, dishid)
 			continue
 		}
-		// dish cooked, publish to tableRunner
-		body, err := json.Marshal(dish)
-		if err != nil {
-			log.Printf("error: %v", err)
-		}
-		req := &queueagent.PublishRequest{
-			QueueName: "tableRunner",
-			Body:      body,
-		}
-		if err := s.publisher.Publish(req); err != nil {
-			log.Printf("error: %v", err)
-		}
-		log.Printf("Served dish")
+		serveDish = append(serveDish, dishid)
 	}
+
+	tableReq := cook.TableServeRequest{
+		OrderId: order.OrderId,
+		TableId: order.TableId,
+		DishId:  serveDish,
+	}
+	// dish cooked, publish to tableRunner
+	if err := s.publisher.PublishWithValue("tableRunner", "serve", &tableReq); err != nil {
+		log.Printf("error: %v", err)
+		return false, nil, err
+	}
+
+	log.Printf("Served %d dish: [%v]", len(serveDish), serveDish)
 	if len(unservedDish) != 0 {
 		order.DishesId = unservedDish
 		body, err := json.Marshal(order)
@@ -143,11 +155,11 @@ func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishRe
 			log.Printf("error: %v", err)
 			return false, nil, err
 		}
-		req := queueagent.PublishRequest{
-			QueueName: "cook",
-			Body:      body,
+		req := queueagent.PublishMessage{
+			ToName: "cook",
+			Body:   body,
 		}
-		log.Printf("Republished unserved dish: %v", unservedDish)
+		log.Printf("Republish unserved dish: %v", unservedDish)
 		return false, &req, err
 		// if err := s.publisher.Publish(req); err != nil {
 		// 	log.Printf("error: %v", err)
@@ -177,7 +189,7 @@ func (s *cookService) ServeDish(dishid string) (entities.Dish, error) {
 			return res, errs[0]
 		}
 		res := []entities.Ingredient{}
-		log.Println(code, body)
+		// log.Println(code, body)
 		if (200 <= code) && (code <= 300) {
 			if err := json.Unmarshal(body, &res); err != nil {
 				log.Println("Get ingredient")
