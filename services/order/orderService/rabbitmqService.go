@@ -228,37 +228,45 @@ func (s *orderService) MakePayment(req order.PaymentRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch paymentType := req.PaymentType; paymentType {
-	case "cash":
-		{
-			var cashRsp order.PaymentWithCashRsp
-			if err := json.Unmarshal(rsp.Body, &cashRsp); err != nil {
-				return nil, err
-			}
-			return cashRsp, nil
-		}
-	case "bank":
-		{
-			var bankRsp order.PaymentWithBankRsp
-			if err := json.Unmarshal(rsp.Body, &bankRsp); err != nil {
-				return nil, err
-			}
-			return bankRsp, nil
-		}
-	case "wallet":
-		{
-			var walletRsp order.PaymentWithWalletRsp
-			if err := json.Unmarshal(rsp.Body, &walletRsp); err != nil {
-				return nil, err
-			}
-			return walletRsp, nil
-		}
-	default:
-		{
-			if rsp.Type == "reject" {
-				return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handler at server right now", string(rsp.Body)))
-			}
-			return nil, errors.New("payment method not accept")
-		}
+	if rsp.Type == "reject" {
+		return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handler at server right now", string(rsp.Body)))
 	}
+	var paymentRsp order.Payment
+	if err := json.Unmarshal(rsp.Body, &paymentRsp); err != nil {
+		return nil, err
+	}
+	return paymentRsp, nil
+	// switch paymentType := req.PaymentType; paymentType {
+	// case "cash":
+	// 	{
+	// 		var cashRsp order.Payment
+	// 		if err := json.Unmarshal(rsp.Body, &cashRsp); err != nil {
+	// 			return nil, err
+	// 		}
+	// 		return cashRsp, nil
+	// 	}
+	// case "bank":
+	// 	{
+	// 		var bankRsp order.PaymentWithBankRsp
+	// 		if err := json.Unmarshal(rsp.Body, &bankRsp); err != nil {
+	// 			return nil, err
+	// 		}
+	// 		return bankRsp, nil
+	// 	}
+	// case "wallet":
+	// 	{
+	// 		var walletRsp order.PaymentWithWalletRsp
+	// 		if err := json.Unmarshal(rsp.Body, &walletRsp); err != nil {
+	// 			return nil, err
+	// 		}
+	// 		return walletRsp, nil
+	// 	}
+	// default:
+	// 	{
+	// 		if rsp.Type == "reject" {
+	// 			return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handler at server right now", string(rsp.Body)))
+	// 		}
+	// 		return nil, errors.New("payment method not accept")
+	// 	}
+	// }
 }
