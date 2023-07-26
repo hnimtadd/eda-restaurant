@@ -3,6 +3,7 @@ package paymentservice
 import (
 	"edaRestaurant/services/config"
 	"edaRestaurant/services/payment/paymentrepository"
+	stripeengine "edaRestaurant/services/payment/stripeEngine"
 	payment "edaRestaurant/services/payment/type"
 	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
@@ -10,24 +11,25 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type paymentService struct {
-	conn      *amqp.Connection
-	config    config.RabbitmqConfig
-	repo      paymentrepository.PaymentRepository
-	publisher queueagent.Publisher
+	conn          *amqp.Connection
+	config        config.RabbitmqConfig
+	repo          paymentrepository.PaymentRepository
+	publisher     queueagent.Publisher
+	paymentEngine stripeengine.StripeEngine
 }
 
-func NewPaymentService(repo paymentrepository.PaymentRepository, publisher queueagent.Publisher, config config.RabbitmqConfig) (PaymentService, error) {
+func NewPaymentService(repo paymentrepository.PaymentRepository, engine stripeengine.StripeEngine, publisher queueagent.Publisher, config config.RabbitmqConfig) (PaymentService, error) {
 	service := &paymentService{
-		repo:      repo,
-		config:    config,
-		publisher: publisher,
+		repo:          repo,
+		config:        config,
+		publisher:     publisher,
+		paymentEngine: engine,
 	}
 	if err := service.initConnection(); err != nil {
 		return nil, err
@@ -89,7 +91,7 @@ func (s *paymentService) MakePaymentHandler(msg any) error {
 }
 
 func (s *paymentService) GetDishMoney(dishid ...string) (float64, error) {
-	return 100, nil
+	return 100000, nil
 }
 func (s *paymentService) CheckPaymentHandler(msg any) error {
 	d := msg.(amqp.Delivery)
@@ -194,6 +196,7 @@ func (s *paymentService) ListenAndServePaymentOrder() {
 					log.Println("redelivery")
 					d.Nack(false, true)
 				}
+				continue
 			} else {
 				d.Ack(false)
 			}
@@ -204,76 +207,137 @@ func (s *paymentService) ListenAndServePaymentOrder() {
 	log.Println("exited")
 }
 
-func (s *paymentService) ProcessBankPaymentRequest(req *payment.PaymentRequest) (*payment.PaymentWithBankRsp, error) {
+func (s *paymentService) ProcessBankPaymentRequest(req *payment.PaymentRequest) (*payment.Payment, error) {
 	log.Printf("[Payment]: Processing Payment request with bank %v", req)
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 	money, err := s.GetDishMoney(req.DishId...)
 	if err != nil {
 		return nil, err
 	}
+
 	supplier := req.Supplier
 	if supplier == "" {
 		return nil, errors.New(fmt.Sprintf("bad payment header: %v", req.PaymentType))
 	}
-	bankInfo, err := s.repo.GetBankInformation(supplier)
+
+	bankInfoEntity, err := s.repo.GetBankInformation(supplier)
 	if err != nil {
 		return nil, err
 	}
-	BankingUrl := "TODO: use engine to generate payment url for bank and bill"
-	expiredAt := time.Now().Add(time.Minute * 5).Unix()
-	rsp := payment.PaymentWithBankRsp{
-		PaymentId:  uuid.New().String(),
-		OrderId:    req.OrderId,
-		Price:      money,
-		BankingUrl: BankingUrl,
-		Metadata:   *bankInfo,
-		ExpiredAt:  expiredAt,
+
+	checkOutSession, err := s.paymentEngine.CreateCheckOutSession(money)
+	if err != nil {
+		log.Printf("[Payment] Error: %v", err)
+		return nil, err
 	}
+	metadata := payment.PaymentMetadata{
+		SupplierId: bankInfoEntity.BankId,
+		Supplier:   bankInfoEntity.BankSupplier,
+		Endpoint:   checkOutSession.URL,
+		ExpiredAt:  checkOutSession.ExpiresAt,
+	}
+
+	payment := payment.Payment{
+		PaymentEntity: payment.PaymentEntity{
+			PaymentId: checkOutSession.ID,
+			TableId:   req.TableId,
+			OrderId:   req.OrderId,
+			Price:     money,
+		},
+		Metadata: metadata,
+	}
+
+	if err := s.repo.CreatePaymentHistory(payment); err != nil {
+		log.Printf("[Payment]: Error: %v", err)
+		return &payment, err
+	}
+
 	log.Println("[Payment]: DONE")
-	return &rsp, nil
+	return &payment, nil
 }
 
-func (s *paymentService) ProcessCashPaymentRequest(req *payment.PaymentRequest) (*payment.PaymentWithCashRsp, error) {
+func (s *paymentService) ProcessCashPaymentRequest(req *payment.PaymentRequest) (*payment.Payment, error) {
 	log.Printf("[Payment]: Processing Payment request with cash %v", req)
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 	money, err := s.GetDishMoney(req.DishId...)
 	if err != nil {
 		return nil, err
 	}
 
-	rsp := payment.PaymentWithCashRsp{
-		PaymentId: uuid.New().String(),
-		OrderId:   req.OrderId,
-		TableId:   req.TableId,
-		Price:     money,
+	payment := payment.Payment{
+		PaymentEntity: payment.PaymentEntity{
+			PaymentId: uuid.New().String(),
+			TableId:   req.TableId,
+			OrderId:   req.OrderId,
+			Price:     money,
+			Type:      "cash",
+		},
+	}
+
+	if err := s.repo.CreatePaymentHistory(payment); err != nil {
+		log.Printf("[Payment]: Error: %v", err)
+		return &payment, err
 	}
 
 	log.Println("[Payment]: DONE")
-	return &rsp, nil
+	return &payment, nil
+
 }
 
-func (s *paymentService) ProcessWalletPaymentRequest(req *payment.PaymentRequest) (*payment.PaymentWithWalletRsp, error) {
+func (s *paymentService) ProcessWalletPaymentRequest(req *payment.PaymentRequest) (*payment.Payment, error) {
 	log.Printf("[Payment]: Processing Payment request with wallet %v", req)
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 	money, err := s.GetDishMoney(req.DishId...)
+	// time.Sleep(time.Second * 5)
 	if err != nil {
 		return nil, err
 	}
+
 	supplier := req.Supplier
 	if supplier == "" {
 		return nil, errors.New(fmt.Sprintf("bad payment header: %v", req.PaymentType))
 	}
+
 	walletInfo, err := s.repo.GetWalletInformation(supplier)
-	walletUrl := "TODO: use engine to generate payment url for wallet and bill"
-	expiredAt := time.Now().Add(time.Minute * 5).Unix()
-	rsp := payment.PaymentWithWalletRsp{
-		PaymentId: uuid.New().String(),
-		OrderId:   req.OrderId,
-		Price:     money,
-		WalletUrl: walletUrl,
-		Metadata:  *walletInfo,
-		ExpiredAt: expiredAt,
+	if err != nil {
+		return nil, err
 	}
+
+	checkOutSession, err := s.paymentEngine.CreateCheckOutSession(money)
+	if err != nil {
+		log.Printf("[Payment] Error: %v", err)
+		return nil, err
+	}
+	metadata := payment.PaymentMetadata{
+		SupplierId: walletInfo.WalletId,
+		Supplier:   walletInfo.WalletSupplier,
+		Endpoint:   checkOutSession.URL,
+		ExpiredAt:  checkOutSession.ExpiresAt,
+	}
+
+	payment := payment.Payment{
+		PaymentEntity: payment.PaymentEntity{
+			PaymentId: checkOutSession.ID,
+			TableId:   req.TableId,
+			OrderId:   req.OrderId,
+			Price:     money,
+			Type:      "wallet",
+		},
+		Metadata: metadata,
+	}
+
+	if err := s.repo.CreatePaymentHistory(payment); err != nil {
+		log.Printf("[Payment]: Error: %v", err)
+		return &payment, err
+	}
+
 	log.Println("[Payment]: DONE")
-	return &rsp, nil
+	return &payment, nil
+}
+
+func (s *paymentService) HandleCompletedPayment(paymentId string) error {
+	if err := s.repo.MarkDonePayment(paymentId); err != nil {
+		return err
+	}
+	return nil
 }

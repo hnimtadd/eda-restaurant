@@ -5,4 +5,5 @@ type PaymentService interface {
 	CheckPaymentHandler(msg any) error
 	InitBackground()
 	ListenAndServePaymentOrder()
+	HandleCompletedPayment(paymentId string) error
 }
