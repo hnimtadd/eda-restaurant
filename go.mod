@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/rabbitmq/amqp091-go v1.8.1
 	github.com/spf13/viper v1.16.0
+	github.com/stripe/stripe-go/v74 v74.27.0
 	go.mongodb.org/mongo-driver v1.12.0
 )
 

@@ -9,8 +9,8 @@ services:
     networks:
       - restaurant-net
     volumes:
-      - $PWD/data/mongodb:/data/db
-      - $PWD/data/mongoinit/:/docker-entrypoint-initdb.d/
+      - $PWD/_data/mongodb:/data/db
+      - $PWD/_data/mongoinit/:/docker-entrypoint-initdb.d/
     restart: always
     env_file:
       - .env
