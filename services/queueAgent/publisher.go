@@ -20,13 +20,6 @@ type PublishMessage struct {
 	Body     []byte
 	CorrId   string
 }
-
-//	type PublishResponse struct {
-//		Type          string
-//		FromQueueName string
-//		ToQueueName   string
-//		Body          string
-//	}
 type Publisher interface {
 	publish(req *PublishMessage) error
 	PublishWithMessage(msg *PublishMessage) error
