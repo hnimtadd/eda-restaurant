@@ -1,8 +1,14 @@
 package paymentrepository
 
-import payment "edaRestaurant/services/payment/type"
+import (
+	"edaRestaurant/services/entities"
+	payment "edaRestaurant/services/payment/type"
+)
 
 type PaymentRepository interface {
-	GetWalletInformation(supplier string) (*payment.WalletInformation, error)
-	GetBankInformation(supplier string) (*payment.BankInformation, error)
+	GetWalletInformation(supplier string) (*entities.WalletInformation, error)
+	GetBankInformation(supplier string) (*entities.BankInformation, error)
+	CreatePaymentHistory(payment.Payment) error
+	MarkDonePayment(paymentId string) error
+	GetPaymentsHistory() ([]entities.Payment, error)
 }

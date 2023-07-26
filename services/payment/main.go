@@ -3,7 +3,9 @@ package main
 import (
 	"edaRestaurant/services/config"
 	paymentservice "edaRestaurant/services/payment/paymentService"
+	paymentwebhook "edaRestaurant/services/payment/paymentWebhook"
 	"edaRestaurant/services/payment/paymentrepository"
+	stripeengine "edaRestaurant/services/payment/stripeEngine"
 	queueagent "edaRestaurant/services/queueAgent"
 	"log"
 )
@@ -17,11 +19,19 @@ func main() {
 
 	rabbitmqConfig := config.NewRabbitmqConfig(".")
 	servicepublisher, err := queueagent.NewPublisher(rabbitmqConfig)
+	stripeEngine := stripeengine.NewStripeEngine()
 
-	service, err := paymentservice.NewPaymentService(repo, servicepublisher, rabbitmqConfig)
+	service, err := paymentservice.NewPaymentService(repo, stripeEngine, servicepublisher, rabbitmqConfig)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
-	service.InitBackground()
+	go service.InitBackground()
+	paymentWebhook, err := paymentwebhook.NewPaymentWebHook(service)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
 	log.Println("running")
+	if err := paymentWebhook.Run(":9123"); err != nil {
+		log.Fatal(err)
+	}
 }
