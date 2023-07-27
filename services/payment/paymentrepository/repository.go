@@ -11,4 +11,5 @@ type PaymentRepository interface {
 	CreatePaymentHistory(payment.Payment) error
 	MarkDonePayment(paymentId string) error
 	GetPaymentsHistory() ([]entities.Payment, error)
+	GetDishInformatio(dishId string) (*entities.Dish, error)
 }

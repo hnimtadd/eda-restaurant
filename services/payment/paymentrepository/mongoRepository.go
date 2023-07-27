@@ -128,3 +128,21 @@ func (s *paymentRepository) MarkDonePayment(paymentId string) error {
 	}
 	return nil
 }
+
+func (s *paymentRepository) GetDishInformatio(dishId string) (*entities.Dish, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	var dish entities.Dish
+	filter := bson.D{primitive.E{Key: "dishid", Value: dishId}}
+	res := s.db.Collection("dishes").FindOne(ctx, filter)
+	if err := res.Err(); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errors.New(fmt.Sprintf("Not found document with id :%v in database", dishId))
+		}
+		return nil, err
+	}
+	if err := res.Decode(&dish); err != nil {
+		return nil, err
+	}
+	return &dish, nil
+}
