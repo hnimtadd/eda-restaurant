@@ -1,10 +1,11 @@
 package stripeengine
 
 import (
-	"log"
-	"os"
+	"errors"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/stripe/stripe-go/v74"
 	"github.com/stripe/stripe-go/v74/checkout/session"
 )
@@ -20,11 +21,15 @@ func NewStripeEngine() StripeEngine {
 	return engine
 }
 func (s *StripeEngine) initStrip() error {
-	stripe.Key = os.Getenv("stripeKey")
+	key := viper.GetViper().GetString("stripe_key")
+	if key == "" {
+		log.Debugf("stripe_key must specified in .env file")
+		return errors.New("stripe key must not null")
+	}
 	return nil
 }
 func (s *StripeEngine) CreateCheckOutSession(money float64) (*stripe.CheckoutSession, error) {
-	log.Println("making checkout session", money)
+	log.Infof("[Stripe engine] Processing money request with money: %v\n", money)
 	params := &stripe.CheckoutSessionParams{
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
@@ -40,15 +45,15 @@ func (s *StripeEngine) CreateCheckOutSession(money float64) (*stripe.CheckoutSes
 		},
 		Mode:       stripe.String(string(stripe.CheckoutSessionModePayment)),
 		SuccessURL: stripe.String("https://example.com/success"),
-		CancelURL:  stripe.String("https://example.com/cancel"),
 		ExpiresAt:  stripe.Int64(time.Now().Add(30 * time.Minute).Unix()),
 	}
 
+	log.Infoln("[Stripe engine] Creating checkout session with this reuest")
 	checkoutSession, err := session.New(params)
-
 	if err != nil {
-		log.Printf("[Stripe Engine]session.New: %v", err)
+		log.Errorf("[Stripe Engine]session.New: %v\n", err)
 		return nil, err
 	}
+	log.Infoln("[Stripe engine] Create checkout session successful")
 	return checkoutSession, nil
 }

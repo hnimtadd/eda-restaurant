@@ -2,16 +2,18 @@ package paymentwebhook
 
 import (
 	paymentservice "edaRestaurant/services/payment/paymentService"
-	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/stripe/stripe-go/v74/webhook"
 )
 
 type PamentWebHook struct {
-	app     *fiber.App
-	service paymentservice.PaymentService
+	app            *fiber.App
+	service        paymentservice.PaymentService
+	endpointSecret string
 }
 
 func NewPaymentWebHook(service paymentservice.PaymentService) (PamentWebHook, error) {
@@ -33,6 +35,12 @@ func (s *PamentWebHook) initConnect() error {
 	if err := s.initRoute(); err != nil {
 		return err
 	}
+	endpointSecret := viper.GetViper().GetString("stripe_webhook_secret")
+	if endpointSecret == "" {
+		log.Errorf("Secret endpoint must specified\n")
+		log.Exit(1)
+	}
+	s.endpointSecret = endpointSecret
 	return nil
 }
 
@@ -50,23 +58,24 @@ func (s *PamentWebHook) initRoute() error {
 
 func (s *PamentWebHook) WebHookHandler() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
-		endpointSecret := "whsec_007a1cd0da122ad570a50dbeff82ebdeb8b9212cdde7891ae40827f17e21de9a"
-		event, err := webhook.ConstructEvent(ctx.Body(), ctx.GetReqHeaders()["Stripe-Signature"], endpointSecret)
+		event, err := webhook.ConstructEvent(ctx.Body(), ctx.GetReqHeaders()["Stripe-Signature"], s.endpointSecret)
 		if err != nil {
-			log.Printf("[Webhook] Error: %v", err)
+			log.Printf("[Payment Webhook] Error: %v", err)
 		}
 
 		switch eventType := event.Type; eventType {
 		case "checkout.session.completed":
 			if err := s.service.HandleCompletedPayment(event.GetObjectValue("id")); err != nil {
-				log.Printf("error: %v", err)
+				log.Errorf("[Payment Webhook] Error: %v\n", err)
+				return err
 			}
-			log.Println("Completed")
+			log.Infof("[Payment Webhook] Completed\n")
 		case "payment_intent.payment_failed":
-			log.Printf("payment %v failed.", event.GetObjectValue("id"))
-
+			log.Infof("[Payment Webhook] Payment %v failed.\n", event.GetObjectValue("id"))
+		case "checkout.session.expired":
+			log.Infof("[Payment Webhook] Check out expired: %v\n", event.GetObjectValue("id"))
 		default:
-			log.Printf("Unhandled event: %v", eventType)
+			log.Warnf("[Payment Webhook] Unhandled event: %v\n", eventType)
 		}
 		// TODO: handler incomming event, update repository and some relate stuff
 		return nil

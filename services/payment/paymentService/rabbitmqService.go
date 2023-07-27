@@ -91,7 +91,15 @@ func (s *paymentService) MakePaymentHandler(msg any) error {
 }
 
 func (s *paymentService) GetDishMoney(dishid ...string) (float64, error) {
-	return 100000, nil
+	money := float64(0)
+	for _, id := range dishid {
+		dish, err := s.repo.GetDishInformatio(id)
+		if err != nil {
+			return 0, err
+		}
+		money += dish.Price
+	}
+	return money, nil
 }
 func (s *paymentService) CheckPaymentHandler(msg any) error {
 	d := msg.(amqp.Delivery)

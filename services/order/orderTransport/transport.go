@@ -6,7 +6,7 @@ import (
 	orderpublisher "edaRestaurant/services/queueAgent"
 	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -34,7 +34,7 @@ func NewFiberTransport(service orderservice.OrderService, publisher queueagent.P
 
 func (s *FiberTransport) Run(port string) error {
 	for _, route := range s.app.GetRoutes() {
-		log.Printf("[%s] - %s\n", route.Method, route.Path)
+		log.Infof("[%s] - %s\n", route.Method, route.Path)
 	}
 	if err := s.app.Listen(port); err != nil {
 		return err

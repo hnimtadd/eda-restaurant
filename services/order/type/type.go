@@ -11,6 +11,7 @@ type Dish struct {
 	Name          string   `json:"name,omiempty" db:"name,omiempty"`
 	Description   string   `json:"description,omiempty" db:"description,omiempty"`
 	IngredientsId []string `json:"ingredient_id,omiempty" db:"ingredient_id,omiempty"`
+	Price         float64  `json:"price,omiempty" db:"price,omiempty"`
 }
 
 type Ingredient struct {

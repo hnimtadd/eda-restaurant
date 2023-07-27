@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 
@@ -56,7 +56,8 @@ func (s *orderService) initQueue(queueName string) error {
 func (s *orderService) ListenAndServeOrderQueue() {
 	ch, err := s.conn.Channel()
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("error: %v", err)
+		log.Exit(1)
 	}
 	queue, err := ch.QueueDeclare(
 		"order",
@@ -67,7 +68,8 @@ func (s *orderService) ListenAndServeOrderQueue() {
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("error: %v", err)
+		log.Exit(1)
 	}
 	err = ch.QueueBind(
 		queue.Name,
@@ -77,7 +79,8 @@ func (s *orderService) ListenAndServeOrderQueue() {
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("error: %v", err)
+		log.Exit(1)
 	}
 
 	ds, err := ch.Consume(
@@ -90,7 +93,8 @@ func (s *orderService) ListenAndServeOrderQueue() {
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("error: %v", err)
+		log.Exit(1)
 	}
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -99,7 +103,6 @@ func (s *orderService) ListenAndServeOrderQueue() {
 		for d := range ds {
 			var order order.Order
 			if err := json.Unmarshal(d.Body, &order); err != nil {
-				log.Println(d.Redelivered)
 				if d.Redelivered {
 					d.Nack(false, false)
 					continue
@@ -114,12 +117,12 @@ func (s *orderService) ListenAndServeOrderQueue() {
 			}
 
 			if err := s.publisher.PublishWithValue("order", "cook", "create", order); err != nil {
-				log.Printf("error: %v", err)
+				log.Infof("error: %v", err)
 			}
 			d.Ack(false)
 		}
 	}()
-	log.Println("[*] Listening to queue")
+	log.Infoln("[*] Listening to queue")
 	wg.Wait()
 }
 
@@ -201,6 +204,7 @@ func (s *orderService) CleanTable(tableId string) error {
 	}
 	return nil
 }
+
 func (s *orderService) CheckPayment(cPaymentReq order.CheckPaymentRequest) (*order.CheckPaymentResponse, error) {
 	ord, err := s.repo.GetOrderById(cPaymentReq.OrderId)
 	if err != nil {
@@ -232,7 +236,7 @@ func (s *orderService) MakePayment(req order.PaymentRequest) (any, error) {
 		return nil, err
 	}
 	if rsp.Type == "reject" {
-		return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handler at server right now", string(rsp.Body)))
+		return nil, errors.New(fmt.Sprintf("err: %v, detail: %v", "method cann't handle at server right now", string(rsp.Body)))
 	}
 	var paymentRsp order.Payment
 	if err := json.Unmarshal(rsp.Body, &paymentRsp); err != nil {

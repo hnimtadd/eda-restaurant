@@ -5,7 +5,7 @@ import (
 	"edaRestaurant/services/config"
 	"edaRestaurant/services/entities"
 	"edaRestaurant/services/order/type"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,15 +42,17 @@ func (repo *orderRepository) initDB() error {
 			Password:   repo.config.Password,
 		},
 	).SetTLSConfig(nil).SetTimeout(5 * time.Second)
+	log.Infof("[Order Repository] Connecting to mongodb")
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
 		return err
 	}
+	log.Infof("[Order Repository] Pinging to mongodb")
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		return err
 	}
 	repo.db = client.Database(repo.config.Database)
-	log.Printf("Connected to mongodb with config: %v\n", repo.config)
+	log.Infof("[Order Repository] Connected to mongodb.\n")
 	return nil
 }
 
@@ -138,6 +140,7 @@ func (repo *orderRepository) CreateDish(dish order.Dish) error {
 		Description: dish.Description,
 		Name:        dish.Name,
 		Ingredients: dish.IngredientsId,
+		Price:       dish.Price,
 	}
 	_, err := repo.db.Collection("dishes").InsertOne(ctx, entityDish)
 	if err != nil {

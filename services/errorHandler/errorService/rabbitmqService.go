@@ -3,7 +3,7 @@ package errorservice
 import (
 	"edaRestaurant/services/config"
 	queueagent "edaRestaurant/services/queueAgent"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -21,6 +21,7 @@ func NewErrorService(publisher queueagent.Publisher, config config.RabbitmqConfi
 		publisher: publisher,
 	}
 	if err := service.initConnection(); err != nil {
+		log.Errorf("[Error Service]: Error: %v", err)
 		return nil, err
 	}
 	return service, nil
@@ -40,11 +41,13 @@ func (s *errorService) InitBackground() {
 }
 
 func (s *errorService) ListenAndServeCookQueue() {
+	log.Infoln("[Error Service] Decalring channel")
 	ch, err := s.conn.Channel()
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("error: %v", err)
 	}
 
+	log.Infoln("[Error Service] Declaring exclusive restaurant exchange")
 	err = ch.ExchangeDeclare(
 		"restaurant",
 		"direct",
@@ -61,6 +64,8 @@ func (s *errorService) ListenAndServeCookQueue() {
 	// if err != nil {
 	// 	log.Fatalf("error: %v", err)
 	// }
+
+	log.Infoln("[Error Service] Declaring dead-letter-exchange")
 	err = ch.ExchangeDeclare(
 		"errorEx",
 		"fanout",
@@ -72,11 +77,12 @@ func (s *errorService) ListenAndServeCookQueue() {
 	)
 
 	if err != nil {
-		log.Println("Exchange config fail")
-		log.Println("trying to redeclare exchange, unbind all other queue")
-		log.Fatalf("error: %v", err)
+		log.Warnln("[Error Service] Exchange config fail")
+		log.Warnln("[Error Service] Trying to redeclare exchange, unbind all other queue")
+		log.Fatalf("[Error Service] Error: %v", err)
 	}
 
+	log.Infoln("[Error Service] Declaring dead-letter-queue associate with dead-letter-exchange")
 	queue, err := ch.QueueDeclare(
 		"error",
 		true,
@@ -87,9 +93,10 @@ func (s *errorService) ListenAndServeCookQueue() {
 	)
 
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Errorf("[Error Service] error: %v", err)
 	}
 
+	log.Infoln("[Error Service] Bind dead-letter-queue to dead-letter-exchange")
 	err = ch.QueueBind(queue.Name, "", "errorEx", false, nil)
 	if err != nil {
 		log.Fatalf("error: %v", err)
@@ -112,10 +119,10 @@ func (s *errorService) ListenAndServeCookQueue() {
 	go func() {
 		defer wg.Done()
 		for d := range ds {
-			log.Printf("[ERROR]: received message on dead letter queue, from: %s, to: %s, corrId: %s, type:%s", d.ReplyTo, d.RoutingKey, d.CorrelationId, d.Type)
+			log.Infof("[Error Service]: received message on dead letter queue, from: %s, to: %s, corrId: %s, type:%s", d.ReplyTo, d.RoutingKey, d.CorrelationId, d.Type)
 			err := s.HandlerErrorMessage(d)
 			if err != nil {
-				log.Printf("[ERROR]: %v", err)
+				log.Errorf("[Error Service]: %v", err)
 				if d.Redelivered {
 					d.Nack(false, false)
 				} else {
@@ -127,7 +134,7 @@ func (s *errorService) ListenAndServeCookQueue() {
 		}
 	}()
 
-	log.Printf("[*] Listening to queue: %s\n", queue.Name)
+	log.Infof("[*] Listening to queue: %s\n", queue.Name)
 	wg.Wait()
 }
 

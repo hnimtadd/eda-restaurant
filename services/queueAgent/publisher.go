@@ -6,7 +6,7 @@ import (
 	"edaRestaurant/services/utils"
 	"encoding/json"
 	"errors"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 
@@ -45,11 +45,11 @@ func NewPublisher(config config.RabbitmqConfig) (Publisher, error) {
 }
 
 func (s *publisher) initConnection() error {
+	log.Infoln("[Queue Agent] connecting to rabbitMQ server")
 	conn, err := amqp.Dial(s.config.Source)
 	if err != nil {
 		return err
 	}
-
 	s.conn = conn
 	return nil
 }
@@ -104,15 +104,15 @@ func (s *publisher) publish(req *PublishMessage) error {
 		for {
 			noti, ok := <-chann
 			if !ok {
-				log.Println("Debug point")
+				log.Debugf("Some stuff need to debug")
 				continue
 			}
 			if noti.Ack {
-				log.Println("ack")
+				log.Infof("Message acked")
 				result <- nil
 				return
 			} else {
-				log.Println("nack")
+				log.Infof("Message nacked")
 				result <- errors.New("Message can't publish right now")
 				return
 			}
@@ -124,7 +124,7 @@ func (s *publisher) publish(req *PublishMessage) error {
 			break
 		}
 		if res == nil {
-			log.Printf("[Publisher] Published from %s, to %s, msg type: %s, corrId: %s\n", req.FromName, req.ToName, req.Type, req.CorrId)
+			log.Infof("[Queue Agent] Published from %s, to %s, msg type: %s, corrId: %s\n", req.FromName, req.ToName, req.Type, req.CorrId)
 		}
 		return res
 	}
