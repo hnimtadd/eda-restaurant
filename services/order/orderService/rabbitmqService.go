@@ -206,6 +206,9 @@ func (s *orderService) CheckPayment(cPaymentReq order.CheckPaymentRequest) (*ord
 	if err != nil {
 		return nil, err
 	}
+	if ord.TableId != cPaymentReq.TableId {
+		return nil, errors.New(fmt.Sprintf("TableId not valid, this order doesn't belong to table id %v", cPaymentReq.TableId))
+	}
 	cPaymentReq.DishId = ord.DishesId
 	rspMsg, err := s.publisher.PublishAndWaitForResponse("order", "payment", "check", cPaymentReq)
 	if err != nil {

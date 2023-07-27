@@ -209,6 +209,7 @@ func (s *paymentService) ListenAndServePaymentOrder() {
 
 func (s *paymentService) ProcessBankPaymentRequest(req *payment.PaymentRequest) (*payment.Payment, error) {
 	log.Printf("[Payment]: Processing Payment request with bank %v", req)
+
 	// time.Sleep(time.Second * 5)
 	money, err := s.GetDishMoney(req.DishId...)
 	if err != nil {

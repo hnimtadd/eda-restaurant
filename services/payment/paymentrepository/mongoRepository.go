@@ -61,6 +61,7 @@ func (repo *paymentRepository) GetWalletInformation(supplier string) (*entities.
 	}
 	return &walletInfo, nil
 }
+
 func (repo *paymentRepository) GetBankInformation(supplier string) (*entities.BankInformation, error) {
 	bankInfo := entities.BankInformation{
 		BankSupplier: supplier,
@@ -112,6 +113,7 @@ func (s *paymentRepository) GetPaymentsHistory() ([]entities.Payment, error) {
 	}
 	return payments, nil
 }
+
 func (s *paymentRepository) MarkDonePayment(paymentId string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
