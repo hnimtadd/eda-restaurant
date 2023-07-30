@@ -8,9 +8,12 @@ import (
 	"edaRestaurant/services/order/type"
 	queueagent "edaRestaurant/services/queueAgent"
 	"encoding/json"
-	"log"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gofiber/fiber/v2"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -162,16 +165,12 @@ func (s *cookService) ServeOrder(order order.Order) (bool, *queueagent.PublishMe
 			return false, nil, err
 		}
 		req := queueagent.PublishMessage{
-			Type:     "create",
+			Type:     "recreate",
 			FromName: "cook",
 			ToName:   "cook",
 			Body:     body,
 		}
-		log.Printf("Republish unserved dish: %v", unservedDish)
 		return false, &req, err
-		// if err := s.publisher.Publish(req); err != nil {
-		// 	log.Printf("error: %v", err)
-		// }
 	}
 	log.Printf("order %v cooked\n", order)
 	return true, nil, nil
@@ -183,30 +182,59 @@ func (s *cookService) ServeDish(dishid string) (entities.Dish, error) {
 	if err != nil {
 		return res, err
 	}
-	for _, ing := range dish.Ingredients {
-		agent := fiber.AcquireAgent()
-		req := agent.Request()
-		req.Header.SetMethod(fiber.MethodGet)
-		req.SetRequestURI("http://localhost:9999/api/v1/event/get-ingredients")
-		err := agent.Parse()
-		if err != nil {
-			return res, err
-		}
-		code, body, errs := agent.Bytes()
-		if len(errs) > 0 {
-			return res, errs[0]
-		}
-		res := []entities.Ingredient{}
-		// log.Println(code, body)
-		if (200 <= code) && (code <= 300) {
-			if err := json.Unmarshal(body, &res); err != nil {
-				log.Println("Get ingredient")
-			}
-			time.Sleep(time.Second)
-			log.Printf("Take out ingredient %v \n, num: %v", ing, 1)
-		} else {
+
+	ingReq := make([]entities.Ingredient, len(dish.Ingredients))
+	for i, ing := range dish.Ingredients {
+		ingReq[i] = entities.Ingredient{
+			IngredientId: ing,
+			Quality:      -1,
 		}
 	}
+
+	body, err := json.Marshal(ingReq)
+	if err != nil {
+		return entities.Dish{}, err
+	}
+
+	agent := fiber.AcquireAgent()
+	req := agent.Request()
+	req.Header.SetMethod(fiber.MethodGet)
+	req.SetBody(body)
+	req.SetRequestURI("http://localhost:9999/api/v1/event/check-ingredients")
+	err = agent.Parse()
+	if err != nil {
+		return res, err
+	}
+	code, byteBody, errs := agent.Bytes()
+	if len(errs) > 0 {
+		return res, errs[0]
+	}
+	// rsp := []entities.Ingredient{}
+	// log.Println(code, body)
+	if (200 > code) || (code >= 300) {
+		log.Errorf("[Cook Service] Cann't check ingredient from storage, err: %v, code: %v", string(byteBody), code)
+		return res, errors.New(fmt.Sprintf("[Cook Service] Cann't take out ingredient from storage, err: %v", string(byteBody)))
+	}
+
+	agent = fiber.AcquireAgent()
+	req = agent.Request()
+	req.Header.SetMethod(fiber.MethodPut)
+	req.SetBody(body)
+	req.SetRequestURI("http://localhost:9999/api/v1/event/update-ingredients")
+	err = agent.Parse()
+	if err != nil {
+		return res, err
+	}
+	code, body, errs = agent.Bytes()
+	if len(errs) > 0 {
+		return res, errs[0]
+	}
+	if (200 > code) || (code >= 300) {
+		log.Errorf("[Cook Service] Cann't take out ingredient from storage, err: %v", string(body))
+		return res, errors.New(fmt.Sprintf("[Cook Service] Cann't take out ingredient from storage, err: %v", string(body)))
+	}
+	log.Println("checkpoint")
+	time.Sleep(time.Second)
 	dish.CreatedAt = time.Now().Unix()
 	return dish, nil
 }
