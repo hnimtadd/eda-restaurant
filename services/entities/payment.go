@@ -3,6 +3,7 @@ package entities
 type Payment struct {
 	BaseEntity
 	PaymentId string          `json:"payment_id,omiempty" db:"payment_id,omiempty"`
+	TableId   string          `json:"table_id,omiempty" db:"table_id,omiempty"`
 	OrderId   string          `json:"order_id,omiempty" db:"order_id,omiempty"`
 	Price     float64         `json:"price,omiempty" db:"price,omiempty"`
 	Status    string          `json:"status,omiempty" db:"status,omiempty"`
@@ -17,7 +18,7 @@ type PaymentMetadata struct {
 
 type BankInformation struct {
 	BankId       string `json:"bank_id,omiempty" db:"bank_id,omiempty"`
-	BankSupplier string `json:"bank_supplier"`
+	BankSupplier string `json:"bank_supplier" db:"bank_supplier"`
 	BankEndpoint string `json:"bank_endpoint,omiempty" db:"bank_endpoint,omiempty"` // Username or card id
 }
 
