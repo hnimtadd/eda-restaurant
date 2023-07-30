@@ -10,8 +10,9 @@ type StorageService interface {
 	ListenAndServeQueue()
 	InsertIngredient(ingredient storage.Ingedient) error
 	GetIngredients() ([]entities.Ingredient, error)
+	GetIngredientById(id string) (*entities.Ingredient, error)
 	GetDishes() ([]entities.Dish, error)
 	InsertDish(dish storage.Dish) error
-	CheckIngredientAvailable(id string, num int) (bool, error)
-	UpdateQuality(id string, num int) error
+	CheckIngredientsAvailable(ingredients ...storage.Ingedient) (bool, error)
+	UpdateQuality(ingredients ...storage.Ingedient) error
 }

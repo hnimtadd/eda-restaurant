@@ -8,10 +8,11 @@ import (
 type StorageRepo interface {
 	RegisterNewIngredient(ing storage.Ingedient) error
 
-	CheckIngredientAvailable(id string, num int) (bool, error)
-	UpdateQuality(id string, num int) error
+	CheckIngredientsAvailable(ingredients ...storage.Ingedient) (bool, error)
+	UpdateQuality(ingredients ...storage.Ingedient) error
 
 	GetIngredients() ([]entities.Ingredient, error)
+	GetIngredientById(id string) (*entities.Ingredient, error)
 	RegisterNewDish(dish storage.Dish) error
 	GetDishes() ([]entities.Dish, error)
 }

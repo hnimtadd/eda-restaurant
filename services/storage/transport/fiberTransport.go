@@ -57,11 +57,8 @@ func (s *fiberTransport) initConnection() error {
 func (s *fiberTransport) initRoute() error {
 	s.app.Post("/api/v1/event/import-ingredient", s.InsertIngredient())
 	s.app.Get("/api/v1/event/get-ingredients", s.GetIngredients())
-	s.app.Post("/api/v1/event/create-dish", s.InsertDish())
-	s.app.Get("/api/v1/event/get-dishes", s.GetDishes())
 	s.app.Get("/api/v1/event/check-ingredients", s.CheckIngredient())
-	s.app.Get("/api/v1/event/take-ingredients", s.TakeIngredients())
-	// s.app.Post("/api/v1/event/create-order", s.CreateOrder())
+	s.app.Put("/api/v1/event/update-ingredients", s.TakeIngredients())
 	return nil
 }
 func (s *fiberTransport) GetIngredients() fiber.Handler {
@@ -130,22 +127,20 @@ func (s *fiberTransport) GetDishes() fiber.Handler {
 }
 
 type checkIngredientRequest struct {
-	Id      string `json:"ingredient_id,omiempty" db:"ingredient_id,omiempty"`
-	Quality int    `json:"quality,omiempty" db:"quality,omiempty"`
+	Ingredients []storage.Ingedient `json:"ingredients"`
 }
 
 func (s *fiberTransport) CheckIngredient() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
-		log.Println("checkpoint")
-		var req checkIngredientRequest
+		var req []storage.Ingedient
 		if err := json.Unmarshal(ctx.Body(), &req); err != nil {
 			ctx.Response().Header.Set("Content-Type", "application/json")
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
 			return ctx.SendStatus(fiber.StatusInternalServerError)
 		}
-		log.Println(req)
-		ok, err := s.service.CheckIngredientAvailable(req.Id, req.Quality)
+		ok, err := s.service.CheckIngredientsAvailable(req...)
 		if err != nil {
+			log.Printf("[Storage Service] Error: %v", err)
 			ctx.Response().Header.Set("Content-Type", "application/json")
 			return ctx.SendStatus(fiber.StatusNotFound)
 		}
@@ -160,14 +155,14 @@ func (s *fiberTransport) CheckIngredient() fiber.Handler {
 }
 func (s *fiberTransport) TakeIngredients() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
-		var req checkIngredientRequest
+		var req []storage.Ingedient
 		if err := json.Unmarshal(ctx.Body(), &req); err != nil {
 			ctx.Response().Header.Set("Content-Type", "application/json")
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})
 			return ctx.SendStatus(fiber.StatusInternalServerError)
 		}
 		log.Println(req)
-		err := s.service.UpdateQuality(req.Id, req.Quality)
+		err := s.service.UpdateQuality(req...)
 		if err != nil {
 			ctx.Response().Header.Set("Content-Type", "application/json")
 			json.NewEncoder(ctx.Response().BodyWriter()).Encode(map[string]string{"msg": err.Error()})

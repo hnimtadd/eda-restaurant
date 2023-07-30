@@ -6,6 +6,8 @@ import (
 	queueagent "edaRestaurant/services/queueAgent"
 	storagerepo "edaRestaurant/services/storage/storageRepo"
 	storage "edaRestaurant/services/storage/type"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 
@@ -116,7 +118,13 @@ func (s *storageService) InsertIngredient(ingredient storage.Ingedient) error {
 	}
 	return nil
 }
-
+func (s *storageService) GetIngredientById(id string) (*entities.Ingredient, error) {
+	ings, err := s.repo.GetIngredientById(id)
+	if err != nil {
+		return nil, err
+	}
+	return ings, nil
+}
 func (s *storageService) GetIngredients() ([]entities.Ingredient, error) {
 	ings, err := s.repo.GetIngredients()
 	if err != nil {
@@ -140,16 +148,25 @@ func (s *storageService) InsertDish(dish storage.Dish) error {
 	return nil
 }
 
-func (s *storageService) CheckIngredientAvailable(id string, num int) (bool, error) {
-	contain, err := s.repo.CheckIngredientAvailable(id, num)
+func (s *storageService) CheckIngredientsAvailable(ingredients ...storage.Ingedient) (bool, error) {
+	contain, err := s.repo.CheckIngredientsAvailable(ingredients...)
 	if err != nil {
 		return false, err
 	}
 	return contain, nil
 }
 
-func (s *storageService) UpdateQuality(id string, num int) error {
-	if err := s.repo.UpdateQuality(id, num); err != nil {
+func (s *storageService) UpdateQuality(ingredients ...storage.Ingedient) error {
+	for _, ingredient := range ingredients {
+		i, err := s.repo.GetIngredientById(ingredient.Id)
+		if err != nil {
+			return err
+		}
+		if i.Quality+ingredient.Quality < 0 {
+			return errors.New(fmt.Sprintf("Ingredient with id %v is not enough", ingredient.Id))
+		}
+	}
+	if err := s.repo.UpdateQuality(ingredients...); err != nil {
 		return err
 	}
 	return nil

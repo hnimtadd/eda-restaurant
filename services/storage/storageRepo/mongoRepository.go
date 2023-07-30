@@ -7,7 +7,7 @@ import (
 	storage "edaRestaurant/services/storage/type"
 	"errors"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,9 +110,22 @@ func (repo *storageRepository) RegisterNewDish(dish storage.Dish) error {
 	return nil
 }
 
-func (repo *storageRepository) CheckIngredientAvailable(id string, num int) (bool, error) {
+func (repo *storageRepository) CheckIngredientsAvailable(ingredients ...storage.Ingedient) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
+	for _, ingredient := range ingredients {
+		ok, err := repo.CheckIngredientAvailable(ctx, ingredient.Id, ingredient.Quality)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, errors.New(fmt.Sprintf("Ingredients (%v) is not available", ingredient.Id))
+		}
+	}
+	return true, nil
+}
+func (repo *storageRepository) CheckIngredientAvailable(ctx context.Context, id string, num int) (bool, error) {
+	log.Infof("[Storage Repository] Checking ingredient available for (%v)", id)
 	filter := bson.D{primitive.E{Key: "ingredientid", Value: id}}
 	cur := repo.db.Collection("ingredients").FindOne(ctx, filter)
 	if err := cur.Err(); err != nil {
@@ -128,14 +141,26 @@ func (repo *storageRepository) CheckIngredientAvailable(id string, num int) (boo
 	return false, errors.New(fmt.Sprintf("Ingredient %v is not enough with value: %v", id, num))
 }
 
-func (repo *storageRepository) UpdateQuality(id string, num int) error {
+func (repo *storageRepository) UpdateQuality(ingredients ...storage.Ingedient) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-
+	for _, ingredient := range ingredients {
+		if err := repo.UpdateOneIngredient(ctx, ingredient.Id, ingredient.Quality); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (repo *storageRepository) UpdateOneIngredient(ctx context.Context, id string, num int) error {
+	if id == "" {
+		return errors.New("Id must not nil")
+	}
 	filter := bson.D{primitive.E{Key: "ingredientid", Value: id}}
-	update := bson.D{primitive.E{Key: "$inc", Value: primitive.E{Key: "quality", Value: -num}}}
+	log.Infof("[Storage Repository] Update ingredient with id (%v) quality (%v)\n", id, num)
+	update := bson.D{primitive.E{Key: "$inc", Value: bson.D{primitive.E{Key: "quality", Value: num}}}}
 	cur := repo.db.Collection("ingredients").FindOneAndUpdate(ctx, filter, update)
 	if err := cur.Err(); err != nil {
+		log.Errorf("[Storage Repository] Error: %v\n", err)
 		return err
 	}
 	return nil
@@ -161,4 +186,18 @@ func (repo *storageRepository) GetIngredients() ([]entities.Ingredient, error) {
 		return nil, err
 	}
 	return ingredients, nil
+}
+func (repo *storageRepository) GetIngredientById(id string) (*entities.Ingredient, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	filter := bson.D{primitive.E{Key: "ingredientid", Value: id}}
+	cur := repo.db.Collection("ingredients").FindOne(ctx, filter)
+	if err := cur.Err(); err != nil {
+		return nil, err
+	}
+	var result entities.Ingredient
+	if err := cur.Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
