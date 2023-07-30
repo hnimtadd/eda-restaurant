@@ -37,6 +37,6 @@ type Payment struct {
 type PaymentMetadata struct {
 	SupplierId string `json:"source_id,omiempty" db:"source_id,omiempty"`
 	Supplier   string `json:"payment_source,omiempty" db:"payment_source,omiempty"`
-	Endpoint   string `json:"source_endpoint,omiempty" db:"source_endpoint,omiempty"` // Username or card id
+	Endpoint   string `json:"source_endpoint,omiempty" db:"source_endpoint,omiempty" bson:"sourceendpoint,omiempty"` // Username or card id
 	ExpiredAt  int64  `json:"expired_at,omiempty"`
 }

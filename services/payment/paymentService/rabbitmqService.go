@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"sync"
 
 	"github.com/google/uuid"
@@ -54,6 +54,19 @@ func (s *paymentService) MakePaymentHandler(msg any) error {
 	)
 	if err = json.Unmarshal(d.Body, &req); err != nil {
 		return err
+	}
+	payment, err := s.repo.GetPaymentWithOrderId(req.OrderId)
+	if payment != nil {
+		log.Infoln("[Payment Service] Payment already make")
+		replyMsg, err := s.publisher.MakeMessageWithValue("payment", d.ReplyTo, "reply", d.CorrelationId, payment)
+		if err != nil {
+			return err
+		}
+		if err := s.publisher.PublishWithMessage(&replyMsg); err != nil {
+			return err
+		}
+		log.Println("[makepayment] REPLIED")
+		return nil
 	}
 	switch paymentType := req.PaymentType; paymentType {
 	case "bank":
@@ -252,6 +265,7 @@ func (s *paymentService) ProcessBankPaymentRequest(req *payment.PaymentRequest) 
 			TableId:   req.TableId,
 			OrderId:   req.OrderId,
 			Price:     money,
+			Status:    "waiting",
 		},
 		Metadata: metadata,
 	}
@@ -331,6 +345,7 @@ func (s *paymentService) ProcessWalletPaymentRequest(req *payment.PaymentRequest
 			OrderId:   req.OrderId,
 			Price:     money,
 			Type:      "wallet",
+			Status:    "waiting",
 		},
 		Metadata: metadata,
 	}

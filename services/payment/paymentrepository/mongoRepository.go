@@ -7,7 +7,7 @@ import (
 	payment "edaRestaurant/services/payment/type"
 	"errors"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -72,16 +72,20 @@ func (repo *paymentRepository) GetBankInformation(supplier string) (*entities.Ba
 }
 
 func (s *paymentRepository) CreatePaymentHistory(payment payment.Payment) error {
+	log.Infof("[Payment Repository] Inserting payment: %v", payment)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	paymentLog := entities.Payment{
 		PaymentId: payment.PaymentId,
+		TableId:   payment.TableId,
 		OrderId:   payment.OrderId,
 		Price:     payment.Price,
+		Status:    payment.Status,
 		Metadata: entities.PaymentMetadata{
-			PaymentSource: payment.Metadata.Supplier,
-			SourceId:      payment.Metadata.SupplierId,
+			PaymentSource:  payment.Metadata.Supplier,
+			SourceId:       payment.Metadata.SupplierId,
+			SourceEndpoint: payment.Metadata.Endpoint,
 		},
 	}
 	_, err := s.db.Collection("payments").InsertOne(ctx, paymentLog)
@@ -145,4 +149,19 @@ func (s *paymentRepository) GetDishInformatio(dishId string) (*entities.Dish, er
 		return nil, err
 	}
 	return &dish, nil
+}
+
+func (s *paymentRepository) GetPaymentWithOrderId(orderId string) (*entities.Payment, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	filter := bson.D{primitive.E{Key: "orderid", Value: orderId}}
+	cur := s.db.Collection("payments").FindOne(ctx, filter)
+	if err := cur.Err(); err != nil {
+		return nil, err
+	}
+	var payment entities.Payment
+	if err := cur.Decode(&payment); err != nil {
+		return nil, err
+	}
+	return &payment, nil
 }

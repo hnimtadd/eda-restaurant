@@ -11,6 +11,7 @@ import (
 )
 
 type StripeEngine struct {
+	stripeKey string
 }
 
 func NewStripeEngine() StripeEngine {
@@ -26,6 +27,9 @@ func (s *StripeEngine) initStrip() error {
 		log.Debugf("stripe_key must specified in .env file")
 		return errors.New("stripe key must not null")
 	}
+	log.Infof("[Stripe Engine], intialized with key: %v", key)
+	s.stripeKey = key
+	stripe.Key = key
 	return nil
 }
 func (s *StripeEngine) CreateCheckOutSession(money float64) (*stripe.CheckoutSession, error) {
@@ -34,7 +38,7 @@ func (s *StripeEngine) CreateCheckOutSession(money float64) (*stripe.CheckoutSes
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency:          stripe.String(string(stripe.CurrencyVND)),
+					Currency:          stripe.String(string(stripe.CurrencyUSD)),
 					UnitAmountDecimal: stripe.Float64(money),
 					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
 						Name: stripe.String("orderProduct"),
